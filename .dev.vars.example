@@ -1,0 +1,4 @@
+# Copy to .dev.vars (git-ignored) and fill in — used only by `wrangler dev`.
+NOTION_TOKEN=ntn_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+NOTION_DB_ID=00000000000000000000000000000000
+ACCESS_KEY=dev-key-change-me

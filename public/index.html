@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Pomodoro</title>
+<style>
+  /* ---------- Theme: light/dark via prefers-color-scheme, close to Notion's look ---------- */
+  :root {
+    --bg: #ffffff;
+    --fg: #37352f;
+    --muted: #787774;
+    --line: #e9e9e7;
+    --hover: #f1f1ef;
+    --input: #f7f7f5;
+    --accent: #eb5757;      /* Focus */
+    --accent-fg: #ffffff;
+    --ok: #4dab9a;
+    --warn: #cb912f;
+    --err: #e03e3e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191919;
+      --fg: #e6e6e4;
+      --muted: #9b9a97;
+      --line: #2f2f2f;
+      --hover: #2a2a2a;
+      --input: #252525;
+      --accent: #ff7369;
+      --accent-fg: #191919;
+    }
+  }
+  body[data-mode="short"], body[data-mode="long"] { --accent: #4dab9a; }
+  @media (prefers-color-scheme: dark) {
+    body[data-mode="short"], body[data-mode="long"] { --accent: #529e8f; --accent-fg: #ffffff; }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.4 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; color: inherit; }
+
+  .app {
+    height: 100%;
+    min-height: 260px;
+    position: relative;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 10px 14px 8px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 8px;
+    /* The ring size adapts to the embed height (300–450px). */
+    --ring: clamp(104px, 34vh, 168px);
+  }
+
+  /* Mode tabs */
+  .modes { display: flex; gap: 2px; flex-wrap: wrap; align-items: center; }
+  .mode {
+    border: 0; background: none; color: var(--muted);
+    padding: 3px 9px; border-radius: 5px; cursor: pointer;
+  }
+  .mode:hover:not(:disabled) { background: var(--hover); }
+  .mode[aria-selected="true"] { color: var(--fg); background: var(--hover); font-weight: 600; }
+  .mode:disabled { cursor: default; }
+  .spacer { flex: 1; }
+  .icon-btn {
+    border: 0; background: none; color: var(--muted); cursor: pointer;
+    padding: 3px 7px; border-radius: 5px;
+  }
+  .icon-btn:hover { background: var(--hover); color: var(--fg); }
+
+  /* Main area: one column when narrow, two columns when wide */
+  .main { display: grid; gap: 10px; align-content: center; justify-items: center; min-height: 0; }
+  @media (min-width: 540px) {
+    .main { grid-template-columns: auto 1fr; justify-items: stretch; align-items: center; gap: 24px; }
+  }
+
+  .ring-wrap { position: relative; width: var(--ring); height: var(--ring); justify-self: center; }
+  .ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 4; }
+  .ring .track { stroke: var(--line); }
+  .ring .bar { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .25s linear; }
+  .time {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .digits {
+    font-size: calc(var(--ring) * 0.27);
+    font-weight: 600; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .state { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+  .panel { display: grid; gap: 8px; width: 100%; max-width: 380px; justify-self: center; }
+  .controls { display: flex; gap: 6px; }
+  .btn {
+    border: 1px solid var(--line); background: none; border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) { background: var(--hover); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; flex: 1; }
+  .btn.primary:hover:not(:disabled) { filter: brightness(.95); background: var(--accent); }
+
+  .field {
+    width: 100%; border: 1px solid transparent; background: var(--input);
+    border-radius: 6px; padding: 6px 9px; outline: none;
+  }
+  .field:focus { border-color: var(--accent); }
+  .field::placeholder { color: var(--muted); }
+  .field:disabled { opacity: .7; }
+
+  /* Footer: today's counter and sync indicator */
+  .foot { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .today { color: var(--fg); }
+  .sync { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .sync[data-s="queue"] .dot { background: var(--warn); }
+  .sync[data-s="error"] .dot { background: var(--err); }
+  .sync[data-s="busy"] .dot { background: var(--muted); }
+
+  /* Settings */
+  .settings {
+    display: none; position: absolute; inset: 0; background: var(--bg);
+    padding: 12px 14px; overflow: auto; z-index: 5;
+  }
+  .settings.open { display: block; }
+  .settings h2 { font-size: 14px; margin: 0 0 8px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
+  .row input[type="number"] { width: 64px; text-align: right; }
+  .row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+
+  /* Access denied */
+  .denied {
+    display: none; position: fixed; inset: 0; background: var(--bg); z-index: 10;
+    align-items: center; justify-content: center; text-align: center; color: var(--muted); padding: 20px;
+  }
+  .denied.show { display: flex; }
+</style>
+</head>
+<body data-mode="focus">
+
+<div class="denied" id="denied">
+  <div><div style="font-size:28px">🔒</div><div style="margin-top:6px"><strong style="color:var(--fg)">Access denied</strong><br>Open this page using the link that contains the key <code>?k=…</code></div></div>
+</div>
+
+<main class="app" id="app">
+  <div class="modes" role="tablist" aria-label="Mode">
+    <button class="mode" role="tab" data-mode="focus">Focus</button>
+    <button class="mode" role="tab" data-mode="short">Short break</button>
+    <button class="mode" role="tab" data-mode="long">Long break</button>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="btn-settings" title="Settings" aria-label="Settings">⚙</button>
+  </div>
+
+  <div class="main">
+    <div class="ring-wrap">
+      <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="track" cx="60" cy="60" r="54"/>
+        <circle class="bar" id="bar" cx="60" cy="60" r="54"/>
+      </svg>
+      <div class="time">
+        <div class="digits" id="digits" role="timer" aria-live="off">25:00</div>
+        <div class="state" id="state">ready</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <input class="field" id="task" list="task-list" placeholder="What are you working on?" maxlength="200" autocomplete="off" enterkeyhint="done">
+      <datalist id="task-list"></datalist>
+      <input class="field" id="note" placeholder="Note (optional)" maxlength="500" autocomplete="off">
+      <div class="controls">
+        <button class="btn primary" id="btn-main">Start</button>
+        <button class="btn" id="btn-skip" title="Skip to the next mode">Skip</button>
+        <button class="btn" id="btn-stop" title="Stop the session">Stop</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span class="today" id="today">🍅 ×0 · 0 min today</span>
+    <span class="sync" id="sync" data-s="ok"><span class="dot"></span><span id="sync-text">synced</span></span>
+  </div>
+
+  <section class="settings" id="settings" aria-label="Settings">
+    <h2>Settings</h2>
+    <div class="row"><label for="s-focus">Focus, min</label><input class="field" type="number" id="s-focus" min="1" max="180"></div>
+    <div class="row"><label for="s-short">Short break, min</label><input class="field" type="number" id="s-short" min="1" max="180"></div>
+    <div class="row"><label for="s-long">Long break, min</label><input class="field" type="number" id="s-long" min="1" max="180"></div>
+    <div class="row"><label for="s-logBreaks">Log breaks to Notion</label><input type="checkbox" id="s-logBreaks"></div>
+    <div class="row"><label for="s-sound">Sound at the end of a session</label><input type="checkbox" id="s-sound"></div>
+    <div class="row"><label for="s-autostart">Auto-start the next mode</label><input type="checkbox" id="s-autostart"></div>
+    <div style="margin-top:8px"><button class="btn" id="btn-settings-close">Done</button></div>
+  </section>
+</main>
+
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+ * Storage: localStorage, every read and write wrapped in try/catch
+ * (access can be blocked inside an iframe or in private mode)
+ * ===================================================================== */
+const LS = { state: 'pomo.state', settings: 'pomo.settings', tasks: 'pomo.tasks', queue: 'pomo.queue', key: 'pomo.key' };
+
+function lsGet(k, fallback) {
+  try { const v = localStorage.getItem(k); return v == null ? fallback : JSON.parse(v); }
+  catch { return fallback; }
+}
+function lsSet(k, v) {
+  try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ }
+}
+
+/* =====================================================================
+ * Access key: from ?k=..., otherwise from localStorage
+ * ===================================================================== */
+const ACCESS_KEY = (() => {
+  const q = new URLSearchParams(location.search).get('k');
+  if (q) { lsSet(LS.key, q); return q; }
+  return lsGet(LS.key, '');
+})();
+
+/* =====================================================================
+ * Constants and settings
+ * ===================================================================== */
+const MODES = ['focus', 'short', 'long'];
+const MODE_LABEL = { focus: 'Focus', short: 'Short break', long: 'Long break' };
+const CYCLE_LENGTH = 4;            // a long break after every 4 focus sessions
+const MIN_LOGGED_MS = 60 * 1000;   // an interrupted session is logged only if it lasted > 1 minute
+const RING_LEN = 2 * Math.PI * 54;
+
+const DEFAULT_SETTINGS = { focus: 25, short: 5, long: 15, logBreaks: false, sound: true, autostart: false };
+const clampMin = (n, fb) => { n = Math.round(Number(n)); return Number.isFinite(n) ? Math.min(180, Math.max(1, n)) : fb; };
+
+let settings = (() => {
+  const s = { ...DEFAULT_SETTINGS, ...(lsGet(LS.settings, {}) || {}) };
+  MODES.forEach(m => { s[m] = clampMin(s[m], DEFAULT_SETTINGS[m]); });
+  return s;
+})();
+
+/* =====================================================================
+ * Timer state (survives page reloads)
+ *
+ * Time is computed from timestamps, not by counting ticks:
+ *   running → remaining = endsAt - Date.now()
+ *   paused  → remaining = totalMs - accMs
+ * accMs is the pure working time (pauses excluded) accumulated before segStart.
+ * ===================================================================== */
+const IDLE = { mode: 'focus', status: 'idle', cycle: 0 };
+let S = (() => {
+  const s = { ...IDLE, ...(lsGet(LS.state, {}) || {}) };
+  if (!MODES.includes(s.mode)) s.mode = 'focus';
+  if (!['idle', 'running', 'paused'].includes(s.status)) return { ...IDLE };
+  if (s.status !== 'idle' && !(s.totalMs > 0 && s.sessionId)) return { ...IDLE, mode: s.mode, cycle: s.cycle | 0 };
+  return s;
+})();
+const saveState = () => lsSet(LS.state, S);
+
+const now = () => Date.now();
+const durMs = (mode) => settings[mode] * 60000;
+
+function activeMs(t = now()) {
+  if (S.status === 'running') return S.accMs + (t - S.segStart);
+  if (S.status === 'paused') return S.accMs;
+  return 0;
+}
+function remainingMs(t = now()) {
+  if (S.status === 'running') return Math.max(0, S.endsAt - t);
+  if (S.status === 'paused') return Math.max(0, S.totalMs - S.accMs);
+  return durMs(S.mode);
+}
+
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() :
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16);
+  }));
+
+/* =====================================================================
+ * DOM
+ * ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const el = {
+  digits: $('digits'), state: $('state'), bar: $('bar'),
+  task: $('task'), note: $('note'), taskList: $('task-list'),
+  main: $('btn-main'), skip: $('btn-skip'), stop: $('btn-stop'),
+  today: $('today'), sync: $('sync'), syncText: $('sync-text'),
+  settings: $('settings'), denied: $('denied'),
+};
+el.bar.style.strokeDasharray = RING_LEN;
+
+/* =====================================================================
+ * Sound (Web Audio) and notifications
+ * ===================================================================== */
+let audioCtx = null;
+/** Called from the Start click handler — only a user gesture can unlock AudioContext inside an iframe. */
+function unlockAudio() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!audioCtx) audioCtx = new AC();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch { /* sound unavailable */ }
+}
+function chime() {
+  if (!settings.sound || !audioCtx) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const t0 = audioCtx.currentTime + 0.02;
+    // Three short soft tones: C-E-G.
+    [523.25, 659.25, 783.99].forEach((f, i) => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      const t = t0 + i * 0.22;
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t); o.stop(t + 0.55);
+    });
+  } catch { /* ignore */ }
+}
+function askNotifyPermission() {
+  try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* ignore */ }
+}
+function notify(title, body) {
+  try { if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body }); } catch { /* ignore */ }
+}
+
+/* =====================================================================
+ * Session control
+ * ===================================================================== */
+function rememberTask(task) {
+  const list = (lsGet(LS.tasks, []) || []).filter(t => t !== task);
+  list.unshift(task);
+  lsSet(LS.tasks, list.slice(0, 10));
+  renderTaskList();
+}
+
+function start() {
+  unlockAudio();
+  askNotifyPermission();
+  const t = now();
+  if (S.status === 'idle') {
+    const task = el.task.value.trim();
+    const total = durMs(S.mode);
+    S = {
+      ...S, status: 'running', totalMs: total,
+      startedAt: t, segStart: t, accMs: 0, endsAt: t + total,
+      sessionId: uuid(),
+      task: task || (S.mode === 'focus' ? 'Untitled' : MODE_LABEL[S.mode]),
+      note: el.note.value.trim(),
+    };
+    if (S.mode === 'focus' && task) rememberTask(task);
+  } else if (S.status === 'paused') {
+    S.status = 'running'; S.segStart = t; S.endsAt = t + (S.totalMs - S.accMs);
+  }
+  saveState(); render();
+}
+
+function pause() {
+  if (S.status !== 'running') return;
+  const t = now();
+  S.accMs += t - S.segStart;
+  S.status = 'paused';
+  saveState(); render();
+}
+
+/** Queues the session for Notion if it should be logged. kind: 'completed' | 'interrupted'. */
+function logSession(kind, t = now()) {
+  const completed = kind === 'completed';
+  const actual = completed ? S.totalMs : activeMs(t);          // actual working time, pauses excluded
+  const endTs = completed ? S.endsAt : t;
+  const longEnough = completed || actual > MIN_LOGGED_MS;
+  const loggable = longEnough && (S.mode === 'focus' || settings.logBreaks);
+  if (!loggable) return;
+  enqueue({
+    id: S.sessionId,
+    task: String(S.task || 'Untitled').slice(0, 200),
+    notes: String(S.note || '').slice(0, 500),
+    type: MODE_LABEL[S.mode],
+    status: completed ? 'Completed' : 'Interrupted',
+    start: new Date(S.startedAt).toISOString(),
+    end: new Date(endTs).toISOString(),
+    durationMin: Math.min(180, Math.max(1, Math.round(actual / 60000))),
+  });
+}
+
+/** Moves to the next mode. counted=true means a full focus session was completed. */
+function advance(counted) {
+  if (S.mode === 'focus') {
+    if (counted) S.cycle = (S.cycle | 0) + 1;
+    if (counted && S.cycle >= CYCLE_LENGTH) { S.cycle = 0; S.mode = 'long'; }
+    else S.mode = 'short';
+  } else {
+    S.mode = 'focus';
+  }
+}
+
+function toIdle() {
+  S = { mode: S.mode, cycle: S.cycle | 0, status: 'idle' };
+}
+
+function onNaturalEnd() {
+  const wasFocus = S.mode === 'focus';
+  const label = MODE_LABEL[S.mode];
+  logSession('completed');
+  chime();
+  notify(wasFocus ? 'Focus complete 🍅' : 'Break is over', label + ' — time is up');
+  advance(true);
+  toIdle();
+  saveState(); render();
+  if (settings.autostart) start();
+}
+
+function stop() {
+  if (S.status === 'idle') return;
+  logSession('interrupted');
+  toIdle();
+  saveState(); render();
+}
+
+function skip() {
+  if (S.status !== 'idle') logSession('interrupted');
+  advance(false);
+  toIdle();
+  saveState(); render();
+}
+
+function tick() {
+  if (S.status === 'running' && now() >= S.endsAt) onNaturalEnd();
+  renderTime();
+}
+
+/* =====================================================================
+ * Notion upload queue (retries, no duplicates — keyed by UUID)
+ * ===================================================================== */
+let queue = lsGet(LS.queue, []);
+if (!Array.isArray(queue)) queue = [];
+let flushing = false;
+let syncErr = '';          // text of the last sync problem
+let offline = false;
+let retryTimer = null;
+let todayData = { count: 0, minutes: 0 };
+
+function api(path, init = {}) {
+  return fetch(path, {
+    ...init,
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', 'X-Access-Key': ACCESS_KEY, ...(init.headers || {}) },
+  });
+}
+
+function enqueue(item) {
+  queue.push(item);
+  lsSet(LS.queue, queue);
+  renderSync(); renderToday();
+  flush();
+}
+
+function scheduleRetry(ms) {
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(flush, ms);
+}
+
+async function errorText(res) {
+  try { const j = await res.json(); return j.message || ('Error ' + res.status); }
+  catch { return 'Error ' + res.status; }
+}
+
+async function flush() {
+  if (flushing || !queue.length || !ACCESS_KEY) return;
+  flushing = true; renderSync();
+  try {
+    while (queue.length) {
+      let res;
+      try {
+        res = await api('/api/sessions', { method: 'POST', body: JSON.stringify(queue[0]) });
+      } catch {                                     // no network
+        offline = true; syncErr = '';
+        scheduleRetry(30000);
+        break;
+      }
+      offline = false;
+      if (res.ok) {                                 // 201 created or 200 duplicate — both are success
+        queue.shift(); syncErr = '';
+      } else if (res.status === 401) {
+        showDenied(); break;
+      } else if (res.status === 429 || res.status >= 500) {   // temporary problem: retry later
+        syncErr = await errorText(res);
+        scheduleRetry(60000);
+        break;
+      } else {                                      // 4xx validation: retrying won't help and would block the queue forever
+        syncErr = 'Rejected: ' + await errorText(res);
+        console.warn('Session rejected and removed from the queue', queue[0]);
+        queue.shift();
+      }
+      lsSet(LS.queue, queue);
+    }
+  } finally {
+    flushing = false;
+  }
+  lsSet(LS.queue, queue);
+  if (!queue.length) refreshToday();
+  renderSync(); renderToday();
+}
+
+async function refreshToday() {
+  if (!ACCESS_KEY) return;
+  try {
+    const res = await api('/api/today');
+    if (res.status === 401) return showDenied();
+    if (!res.ok) { syncErr = await errorText(res); renderSync(); return; }
+    todayData = await res.json();
+    renderToday();
+  } catch { /* offline — keep the previous numbers */ }
+}
+
+function showDenied() { el.denied.classList.add('show'); }
+
+/* =====================================================================
+ * Rendering
+ * ===================================================================== */
+const pad = (n) => String(n).padStart(2, '0');
+
+function renderTime() {
+  const rem = remainingMs();
+  const total = S.status === 'idle' ? durMs(S.mode) : S.totalMs;
+  const secs = Math.ceil(rem / 1000);
+  const text = pad(Math.floor(secs / 60)) + ':' + pad(secs % 60);
+  if (el.digits.textContent !== text) el.digits.textContent = text;
+  const progress = S.status === 'idle' ? 0 : 1 - rem / total;
+  el.bar.style.strokeDashoffset = RING_LEN * (1 - Math.min(1, Math.max(0, progress)));
+  // Remaining time in the tab title while a session is active
+  document.title = S.status === 'idle' ? 'Pomodoro' : `${text} · ${MODE_LABEL[S.mode]}${S.status === 'paused' ? ' ⏸' : ''}`;
+}
+
+function render() {
+  document.body.dataset.mode = S.mode;
+  document.querySelectorAll('.mode').forEach(b => {
+    b.setAttribute('aria-selected', String(b.dataset.mode === S.mode));
+    b.disabled = S.status !== 'idle';
+  });
+  el.main.textContent = S.status === 'running' ? 'Pause' : S.status === 'paused' ? 'Resume' : 'Start';
+  el.stop.disabled = S.status === 'idle';
+  el.state.textContent = S.status === 'running' ? (S.mode === 'focus' ? 'focusing' : 'on break')
+    : S.status === 'paused' ? 'paused' : (S.mode === 'focus' ? `ready · ${S.cycle | 0}/${CYCLE_LENGTH}` : 'ready');
+  const locked = S.status !== 'idle';
+  el.task.disabled = locked; el.note.disabled = locked;
+  // After a reload mid-session, restore the task and note from the saved state.
+  if (locked) { el.task.value = S.task || ''; el.note.value = S.note || ''; }
+  renderTime(); renderSync(); renderToday();
+}
+
+function renderTaskList() {
+  el.taskList.textContent = '';
+  (lsGet(LS.tasks, []) || []).forEach(t => {
+    const o = document.createElement('option'); o.value = t; el.taskList.appendChild(o);
+  });
+}
+
+function renderToday() {
+  // Add focus sessions that are still waiting in the queue to the server's numbers.
+  let count = todayData.count | 0, minutes = todayData.minutes | 0;
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  for (const q of queue) {
+    if (q.type === 'Focus' && new Date(q.start) >= d0) {
+      if (q.status === 'Completed') count++;
+      minutes += q.durationMin | 0;
+    }
+  }
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  const t = h > 0 ? `${h} h ${pad(m)} min` : `${m} min`;
+  el.today.textContent = `🍅 ×${count} · ${t} today`;
+}
+
+function renderSync() {
+  let s = 'ok', text = 'synced';
+  if (flushing) { s = 'busy'; text = 'syncing…'; }
+  else if (queue.length) { s = 'queue'; text = `queued: ${queue.length}` + (offline ? ' · offline' : ''); }
+  if (syncErr && !flushing) { s = 'error'; text = syncErr + (queue.length ? ` · queued: ${queue.length}` : ''); }
+  el.sync.dataset.s = s;
+  el.syncText.textContent = text;
+  el.sync.title = text;
+}
+
+/* =====================================================================
+ * Events
+ * ===================================================================== */
+el.main.addEventListener('click', () => (S.status === 'running' ? pause() : start()));
+el.skip.addEventListener('click', skip);
+el.stop.addEventListener('click', stop);
+
+document.querySelectorAll('.mode').forEach(b => b.addEventListener('click', () => {
+  if (S.status !== 'idle') return;
+  S.mode = b.dataset.mode; saveState(); render();
+}));
+
+// Space toggles start/pause (unless focus is in an input field)
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  e.preventDefault();
+  if (el.settings.classList.contains('open')) return;
+  S.status === 'running' ? pause() : start();
+});
+el.task.addEventListener('keydown', (e) => { if (e.key === 'Enter' && S.status === 'idle') { e.preventDefault(); start(); } });
+
+// Settings
+const sFields = { focus: $('s-focus'), short: $('s-short'), long: $('s-long') };
+const sChecks = { logBreaks: $('s-logBreaks'), sound: $('s-sound'), autostart: $('s-autostart') };
+function fillSettings() {
+  MODES.forEach(m => { sFields[m].value = settings[m]; });
+  Object.keys(sChecks).forEach(k => { sChecks[k].checked = !!settings[k]; });
+}
+MODES.forEach(m => sFields[m].addEventListener('change', () => {
+  settings[m] = clampMin(sFields[m].value, DEFAULT_SETTINGS[m]);
+  sFields[m].value = settings[m];
+  lsSet(LS.settings, settings); renderTime();
+}));
+Object.keys(sChecks).forEach(k => sChecks[k].addEventListener('change', () => {
+  settings[k] = sChecks[k].checked; lsSet(LS.settings, settings);
+  if (k === 'sound' && settings.sound) unlockAudio();
+}));
+$('btn-settings').addEventListener('click', () => { fillSettings(); el.settings.classList.add('open'); });
+$('btn-settings-close').addEventListener('click', () => { el.settings.classList.remove('open'); render(); });
+
+// Background tabs/iframes are throttled — recompute right away when we come back
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); flush(); } });
+window.addEventListener('focus', tick);
+window.addEventListener('online', () => { offline = false; flush(); refreshToday(); });
+window.addEventListener('offline', () => { offline = true; renderSync(); });
+
+/* =====================================================================
+ * Boot
+ * ===================================================================== */
+if (!ACCESS_KEY) {
+  showDenied();
+} else {
+  renderTaskList();
+  fillSettings();
+  // A session that ended while the page was closed: tick() logs it as Completed.
+  tick();
+  render();
+  setInterval(tick, 250);
+  setInterval(flush, 30000);                 // periodic retry of the queue
+  setInterval(() => { if (!document.hidden) refreshToday(); }, 5 * 60000);
+  flush();
+  refreshToday();
+}
+})();
+</script>
+</body>
+</html>

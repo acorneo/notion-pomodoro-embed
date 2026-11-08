@@ -1,0 +1,20 @@
+{
+  "name": "notion-pomodoro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal Pomodoro timer for Notion embeds that logs sessions to a Notion database (Cloudflare Workers)",
+  "license": "MIT",
+  "keywords": ["pomodoro", "notion", "cloudflare-workers", "timer"],
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "create-db": "node scripts/create-db.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261104.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  }
+}

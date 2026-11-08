@@ -1,0 +1,16 @@
+name = "notion-pomodoro"
+main = "src/worker.ts"
+compatibility_date = "2025-09-01"
+
+# Static files (public/index.html) are served by Workers Assets.
+# The Worker runs first only for /api/*; everything else is served by Assets directly.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# Secrets are NOT stored here. Set them with:
+#   wrangler secret put NOTION_TOKEN
+#   wrangler secret put NOTION_DB_ID
+#   wrangler secret put ACCESS_KEY
+# For local development use a .dev.vars file (see .dev.vars.example).
